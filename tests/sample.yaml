@@ -1,0 +1,8 @@
+dockerhub:
+  username: myusername
+  password: mypassword
+postgres:
+  admin:
+    username: pguser
+    password: pgpassword
+

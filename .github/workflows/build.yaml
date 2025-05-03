@@ -1,0 +1,44 @@
+name: Build and Release
+on:
+  push:
+    tags: [ "v*" ]
+
+jobs:
+  build_and_push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: GitHub Actions environment variables
+        run: printenv | sort
+
+      - name: Clone
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        id: build
+        run: |
+          make
+          echo "Checking for build artifact..."
+          ls -lah release/*                 
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: |
+            Release based on tag ${{ github.ref_name }}.
+          files: |
+            release/*
