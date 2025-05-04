@@ -217,16 +217,16 @@ func (s *Service) prune(prefix string, tagkey string, tagvalue string) error {
 			return err
 		}
 
-		found := false
+		prune := false
 		for _, tag := range tags.TagList {
 
-			if aws.ToString(tag.Key) == tagkey && aws.ToString(tag.Value) == tagvalue {
-				found = true
+			if aws.ToString(tag.Key) == tagkey && aws.ToString(tag.Value) != tagvalue {
+				prune = true
 				break
 			}
 		}
 
-		if !found {
+		if prune {
 
 			fmt.Printf("Pruning %s\n", aws.ToString(param.Name))
 			_, err = s.client.DeleteParameter(context.TODO(), &awsssm.DeleteParameterInput{Name: param.Name})

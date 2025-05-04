@@ -3,7 +3,7 @@
 BINARY_NAME=fernctl
 
 build: clean
-	mkdir -p release
+	mkdir release
 	GOOS=linux GOARCH=amd64 go build -o release/${BINARY_NAME}-amd64 ./cmd/${BINARY_NAME}
 
 clean:
