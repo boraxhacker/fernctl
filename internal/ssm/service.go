@@ -58,21 +58,31 @@ func (s *Service) Handle(flags []string) error {
 
 func (s *Service) get(key string) error {
 
-	var parameters []awstypes.Parameter
-
 	if strings.HasPrefix(key, "path:") {
 
-		resp, err := s.client.GetParametersByPath(context.TODO(), &awsssm.GetParametersByPathInput{
-			Path:           aws.String(strings.TrimPrefix(key, "path:")),
-			Recursive:      aws.Bool(true),
-			WithDecryption: aws.Bool(true),
-		})
+		isdone := false
+		var nexttoken *string
+		for !isdone {
 
-		if err != nil {
-			return err
+			resp, err := s.client.GetParametersByPath(context.TODO(), &awsssm.GetParametersByPathInput{
+				Path:           aws.String(strings.TrimPrefix(key, "path:")),
+				Recursive:      aws.Bool(true),
+				WithDecryption: aws.Bool(true),
+				NextToken:      nexttoken,
+			})
+
+			if err != nil {
+				return err
+			}
+
+			for i, _ := range resp.Parameters {
+
+				printParameter(&resp.Parameters[i])
+			}
+
+			isdone = resp.NextToken == nil || aws.ToString(resp.NextToken) == ""
+			nexttoken = resp.NextToken
 		}
-
-		parameters = resp.Parameters
 
 	} else {
 
@@ -85,15 +95,15 @@ func (s *Service) get(key string) error {
 			return err
 		}
 
-		parameters = append(parameters, *resp.Parameter)
-	}
-
-	for _, parameter := range parameters {
-
-		fmt.Printf("%s: '%s'\n", aws.ToString(parameter.Name), aws.ToString(parameter.Value))
+		printParameter(resp.Parameter)
 	}
 
 	return nil
+}
+
+func printParameter(parameter *awstypes.Parameter) {
+
+	fmt.Printf("%s: '%s'\n", aws.ToString(parameter.Name), aws.ToString(parameter.Value))
 }
 
 func (s *Service) delete(key string) error {
