@@ -108,39 +108,68 @@ func printParameter(parameter *awstypes.Parameter) {
 
 func (s *Service) delete(key string) error {
 
-	var parameters []string
+	var deletedParameters []string
+	var invalidParameters []string
 
 	if strings.HasPrefix(key, "path:") {
 
-		resp, err := s.client.GetParametersByPath(context.TODO(), &awsssm.GetParametersByPathInput{
-			Path:           aws.String(strings.TrimPrefix(key, "path:")),
-			Recursive:      aws.Bool(true),
-			WithDecryption: aws.Bool(true),
-		})
+		isdone := false
+		var nexttoken *string
+		for !isdone {
 
-		if err != nil {
-			return err
-		}
+			resp, err := s.client.GetParametersByPath(context.TODO(), &awsssm.GetParametersByPathInput{
+				Path:           aws.String(strings.TrimPrefix(key, "path:")),
+				Recursive:      aws.Bool(true),
+				WithDecryption: aws.Bool(true),
+				NextToken:      nexttoken,
+			})
 
-		for _, parameter := range resp.Parameters {
-			parameters = append(parameters, aws.ToString(parameter.Name))
+			if err != nil {
+				return err
+			}
+
+			var parameters []string
+
+			for _, parameter := range resp.Parameters {
+				parameters = append(parameters, aws.ToString(parameter.Name))
+			}
+
+			delresp, err := s.client.DeleteParameters(context.TODO(), &awsssm.DeleteParametersInput{
+				Names: parameters,
+			})
+
+			if err != nil {
+
+				invalidParameters = append(invalidParameters, parameters...)
+
+			} else {
+
+				deletedParameters = append(deletedParameters, delresp.DeletedParameters...)
+				invalidParameters = append(invalidParameters, delresp.InvalidParameters...)
+			}
+
+			isdone = resp.NextToken == nil || aws.ToString(resp.NextToken) == ""
+			nexttoken = resp.NextToken
 		}
 
 	} else {
 
-		parameters = append(parameters, key)
+		_, err := s.client.DeleteParameter(context.TODO(), &awsssm.DeleteParameterInput{
+			Name: aws.String(key),
+		})
+
+		if err != nil {
+
+			invalidParameters = append(invalidParameters, key)
+
+		} else {
+
+			deletedParameters = append(deletedParameters, key)
+		}
 	}
 
-	resp, err := s.client.DeleteParameters(context.TODO(), &awsssm.DeleteParametersInput{
-		Names: parameters,
-	})
-
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("Success: %v\n", resp.DeletedParameters)
-	fmt.Printf("Failures: %v\n", resp.InvalidParameters)
+	fmt.Printf("Success: %v\n", deletedParameters)
+	fmt.Printf("Failures: %v\n", invalidParameters)
 
 	return nil
 }
@@ -206,45 +235,54 @@ func (s *Service) sync(prefix string, file string) error {
 
 func (s *Service) prune(prefix string, tagkey string, tagvalue string) error {
 
-	resp, err := s.client.GetParametersByPath(context.TODO(), &awsssm.GetParametersByPathInput{
-		Path:           aws.String(prefix),
-		Recursive:      aws.Bool(true),
-		WithDecryption: aws.Bool(true),
-	})
+	isdone := false
+	var nexttoken *string
+	for !isdone {
 
-	if err != nil {
-		return err
-	}
-
-	for _, param := range resp.Parameters {
-
-		tags, err := s.client.ListTagsForResource(context.TODO(), &awsssm.ListTagsForResourceInput{
-			ResourceId:   param.Name,
-			ResourceType: awstypes.ResourceTypeForTaggingParameter,
+		resp, err := s.client.GetParametersByPath(context.TODO(), &awsssm.GetParametersByPathInput{
+			Path:           aws.String(prefix),
+			Recursive:      aws.Bool(true),
+			WithDecryption: aws.Bool(true),
+			NextToken:      nexttoken,
 		})
 
 		if err != nil {
 			return err
 		}
 
-		prune := false
-		for _, tag := range tags.TagList {
+		for _, param := range resp.Parameters {
 
-			if aws.ToString(tag.Key) == tagkey && aws.ToString(tag.Value) != tagvalue {
-				prune = true
-				break
+			tags, err := s.client.ListTagsForResource(context.TODO(), &awsssm.ListTagsForResourceInput{
+				ResourceId:   param.Name,
+				ResourceType: awstypes.ResourceTypeForTaggingParameter,
+			})
+
+			if err != nil {
+				return err
+			}
+
+			prune := false
+			for _, tag := range tags.TagList {
+
+				if aws.ToString(tag.Key) == tagkey && aws.ToString(tag.Value) != tagvalue {
+					prune = true
+					break
+				}
+			}
+
+			if prune {
+
+				fmt.Printf("Pruning %s\n", aws.ToString(param.Name))
+				_, err = s.client.DeleteParameter(context.TODO(), &awsssm.DeleteParameterInput{Name: param.Name})
+			}
+
+			if err != nil {
+				return err
 			}
 		}
 
-		if prune {
-
-			fmt.Printf("Pruning %s\n", aws.ToString(param.Name))
-			_, err = s.client.DeleteParameter(context.TODO(), &awsssm.DeleteParameterInput{Name: param.Name})
-		}
-
-		if err != nil {
-			return err
-		}
+		isdone = resp.NextToken == nil || aws.ToString(resp.NextToken) == ""
+		nexttoken = resp.NextToken
 	}
 
 	return nil
